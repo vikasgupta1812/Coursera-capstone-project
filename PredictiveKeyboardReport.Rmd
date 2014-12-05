@@ -8,69 +8,55 @@ output: pdf_document
 Modeling the Predictive Keyboard
 --------------------------------
 
-### Problem statement
 
-This document describes the steps I took for building the model for the project. The **main requirement** of this project is **"PREDICTIVE KEYBOARD: ...use the knowledge you gained in data products to build a predictive text product..."**. Basically, based on a pre-constructed predictive model and the current text written in a simulated mobile input box, the *predictive keyboard* should propose believable *following* words. The user can choose (if the prediction does suggest a good word) a word from the choices, and add it to the text already put in.  
+[Capstone dataset](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip)
+```{r}
+getwd()
+system('wget -nv https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip')
+system('unzip Coursera-SwiftKey.zip')
+system('mv ./final/en_US en_US/')
+system('rm -rf ./final')
+system('split ./en_US/en_US.twitter.txt --bytes=1M -d --numeric-suffixes --suffix-length=3 --additional-suffix="en_US.twitter.txt"')
 
-Deliverables for the project:  
+system('split ./en_US/en_US.news.txt --bytes=1M -d --numeric-suffixes --suffix-length=3 --additional-suffix="en_US.news.txt"')
 
-* A predictive text model to test on a real data set (this is a set of data.tables in R, which store the N-Grams analysis results).
-* A reproducible R markdown document describing your model building process (this document)
-* A data product built with Shiny or Yhat to demonstrate the use of your product (https://spopa74.shinyapps.io/PredictiveKeyboard/)      
+system('split ./en_US/en_US.blogs.txt --bytes=1M -d --numeric-suffixes --suffix-length=3 --additional-suffix="en_US.blogs.txt"')
 
-
-### What do we have  
-
- * For data, we start with a set of texts (blogs, tweets, news) collected from HC Corpora (www.corpora.heliohost.org).
- * For software and libraries, I'll use R, tm library (text mining), RWeka (R library for accessing Weka algorithms), data.table library (for fast data manipulation).
-A quick check with the files reveals they are somewhat big files: 
-```html
-  lines       words     file
-...
- 899288    37334690    .//en_US/en_US.blogs.txt
-1010242    34372720    .//en_US/en_US.news.txt
-2360148    30374206    .//en_US/en_US.twitter.txt
-...
+system('mkdir en_US/Split/')
+system('mv x* en_US/Split/')
 ```
 
 
-###The workflow  
-
-**As a general approach**, I'll follow these steps: 
-
-*Initial data manipulation*
-
-1. Remove profanities from files, clean them of numbers and dates and punctuation marks. Save the files somewhere else.
-  + A new set of files in a folder called **1_clean**, called "clean_en_US.blogs.txt", etc.
-  + At same time, remove numbers, dates, most punctuation, and lower case everything (prepare for N-grams analysis).
-2. Break the files, get a training corpus, a test corpus, and a smaller corpus for a possible cross-validation step.
-  + A new set of files, in folders **2_train**, **2_test**, **2_cross**. The sizes will follow the percentages 70% for training, 20% for testing, 10% for cross validation.
-  + The process of splitting will be a simple one, break the files in somewhat equal 10 sizes. Pick randomly from these pieces, 2 for testing and 1 for cross-validation, the rest will be the training set. In this case I think this method will be enough, meaning that the collection of blogs/news/tweets is already pretty mixed, more like a "cluster" than a "stratum". Picking "clusters" (chunks) from files will keep the variability of the possible features constant (and high).
-  
-*Create simple models*
-
-3. Get a language model based on the training corpus. Create 1-, 2-, 3-, 4-, 5-grams. Check what's the distribution of frequencies (at some point the difference between frequencies will probably plateau, meaning that the N-grams will be unique, so no decision power at that point). There will be a set of files, in the folders *3_grams* (with the basic N-gram frequencies) and *4_models* (which contains a set of files for each N-grams, including an index of words, a vector of frequencies, and pointers towards the N-1 and 1-gram associated, as "prior" and "posterior").
-4. Measure the accuracy of the model on the *test* corpus.
-
-*Improve on the model*
-
-5. Get a model based on back-off. Get a measure of accuracy on the test corpus.  
-
-*Draw conclusion*  
-*Create a data product*
+```{r}
+n  <-  length(list.files(path="./en_US/Split"))
+n
+```
 
 
-###Initial data manipulation 
+```{r}
+length(sample(1:n))
+sample(1:n, prob=3/4)
+?sample
+```
 
-I'll start with cleaning the files of profanities, transforming them into a version easy to analyze from a N-Gram model point of view. The dates, numbers, punctuation will be removed, the profanities replaced with "(...)". I used the list at https://github.com/shutterstock/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/blob/master/en (a simplified subset of it). I used simple replacement instead of regular expression matching, for two reasons. First, the regular expressions matching will still be prone to errors (" *uck" or similar will also filter "duck"). Second, the straight replacement will be much faster. Used the RWeka AlphabeticTokenizer, for simplicity. 
+
+
+
+
+```{r}
+install.packages("rJava")
+install.packages("RWeka")
+```
+
+
 
 
 ```{r cache=TRUE, eval=FALSE}
-library(stringi)
+#library(stringi)
 library(RWeka)
 
 ## Java stuff
-Sys.setenv(JAVA_HOME="") ## ugly error without this
+#Sys.setenv(JAVA_HOME="") ## ugly error without this
 options(java.parameters="-Xmx14g")  ## give Weka as much memory as possible
 
 ## function will parse a file and will write clean lines of that file in other file. 
