@@ -41,69 +41,13 @@ sample(1:n, prob=3/4)
 
 
 
-
-
-```{r}
-install.packages("rJava")
-install.packages("RWeka")
-```
-
-
-
-
 ```{r cache=TRUE, eval=FALSE}
 #library(stringi)
 library(RWeka)
 
 ## Java stuff
 #Sys.setenv(JAVA_HOME="") ## ugly error without this
-options(java.parameters="-Xmx14g")  ## give Weka as much memory as possible
-
-## function will parse a file and will write clean lines of that file in other file. 
-## e.g. A call like cleanFile("meh.txt", "clean") will create the folder "clean" and inside
-## a files - clean_meh.txt etc. This should not contain profanities (as defined above). 
-
-## NOTE - please careful with the param, the function doesn't check them at all. 
-cleanFile <- function(fileInput, folderOutput) {
-  if (!file.exists(folderOutput)){
-    ## create the folder if it doesn't exist
-    dir.create(folderOutput)
-  }
-  ## get the lines from the file. 
-  input <- file(fileInput, "rb", encoding = "UTF-8")
-  lines <- readLines(input, skipNul = TRUE, encoding = "UTF-8")
-  close(input)
-  ## open a file for writing
-  output <- file(paste(folderOutput, "/clean_", fileInput, sep=""), "w", encoding = "UTF-8")
-  for (line in lines){
-    line <- iconv(line, to = "UTF-8")
-    ## readlines, clean them, write them in the new file. 
-    cleanLine <- removeProfanities(line)
-    writeLines(text = cleanLine, con = output)
-  }
-  close(output)
-}
-
-## list of profanities, reduced here for readability. The actual list used is much longer. 
-## the list in the actual code does contain the actual profanities, shortened here. 
-profanities <- c("acroto...", "an..", "ana...", "ars...") ## etc  
-                 
-## function, will remove profanities from a line and will return the line with no punctuation, 
-removeProfanities <- function(line) {
-  tokens <- AlphabeticTokenizer(line)
-  newline <- ""
-  for (token in unlist(tokens))
-    if (token %in% profanities) newline <- paste(newline, "(...)")
-    else newline <- paste(newline, stri_trans_tolower(token), sep=" ")
-  return(newline)
-}
-```
-
-
-After running the code above on ALL files, I get in the folder 2_clean, the cleaned version of the initial files. 
-I used the Unix split command (*split -l* ) to break the files into 10 chunks each, approximately equal sizes (based on the number of lines of each file - Unix *wc -l* command). I picked at random 1 file for cross training, 2 for testing, 7 for training, for each of the tweets/blogs/news. Moved them into different folders (2_train for training set, 2_test for testing set). 
-Now the data is ready for analysis. 
-
+options(java.parameters="-Xmx4g")  ## give Weka as much memory as possible
 
 ###Create simple models 
 
@@ -143,42 +87,7 @@ save(tf1sorted, file="3_model/5Sorted.tf")
 
 Some stats with regards to time required to analyze the whole corpus (English): 
 
-N-grams |    User / System  / Elapsed  
-------- | ---------------------------  
-1-Gram  |  773.86  /  1.77  /   775.69   
-2-Gram  |  916.21  /  5.79  /   902.12  
-3-Gram  | 2179.20  /  8.42  /  2153.49   
-4-Gram  | 2999.19  /  8.60  /  2969.92  
-5-Gram  | 3285.18  /  8.86  /  3258.52  
 
-
-With the sorted term/frequencies, I can look at some basic statistics for the N-Grams.   
-
-1. 1-Grams:  
-    * Total different: ~443,000
-    * Highest frequency: ~3.3 millions
-    * Number of 1's (frequency == 1): ~229,000
-    * 6 Most used: *the*, *to*, *and*, *a*, *i*, *of*, *in*, *it*, *that*
-2. 2-Grams:
-    * Total different: ~10 millions
-    * Highest frequency: ~300,000
-    * Number of 1's (frequency == 1): ~7.1 millions
-    * 6 Most used: *of the*, *in the*, *it's*, *i'm*, *to the*, *for the*
-3. 3-Grams:
-    * Total different: ~32.7 millions
-    * Highest frequency: ~40,000
-    * Number of 1's (frequency == 1): ~27 millions
-    * 6 Most used:  *i don't*, *one of the*, *a lot of*, *it's a*, *i can't*, *thanks for the*
-4. 4-Grams:
-    * Total different: ~50 millions
-    * Highest frequency: 7898
-    * Number of 1's (frequency == 1): ~45.7 millions
-    * 6 Most used: *i don't know*, *i'm going to*, *can't wait to*, *the end of the*, *I don't think*, *don't want to*
-5. 5-Grams:
-    * Total different: ~55.7 millions
-    * Highest frequency: 2630
-    * Number of 1's (frequency == 1): 53.7 millions (most of them are encountered only once)
-    * 6 Most used: *at the end of the*, *i don't want to*, *can't wait to see*, *it's going to be*, *i can't wait to*, *don't know that*
 
 As for a plot, I'll put just the 1-Grams plot (logarithm so I can see the "elbow"). The plots for the rest of the N-Grams will look VERY SIMILAR (except they have lower and lower starting frequencies, and longer and longer tails to the right - meaning more and more Grams with very low counts). 
 
