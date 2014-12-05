@@ -1,0 +1,603 @@
+---
+title: "Predictive keyboard, modeling"
+author: "Sebastian Popa"
+date: "10/2/2014"
+output: html_document
+---
+
+Modeling the Predictive Keyboard
+--------------------------------
+
+This markdown file will describe the steps for building the model for the project, written as I go through the tasks. The **main requirement** of this project is **"PREDICTIVE KEYBOARD: ...use the knowledge you gained in data products to build a predictive text product..."**. Basically, based on a pre-constructed predictive model and the current text written, the *predictive keyboard* should propose believable *following* words. 
+
+Deliverables:  
+* A predictive text model to test on a real data set  
+* A reproducible R markdown document describing your model building process (this document)  
+* A data product built with Shiny or Yhat to demonstrate the use of your product    
+ 
+
+Introduction 
+------------
+The project is an exercise in building a predictive model for text input using a keyboard. The predictive model could be a combination of probabilistic models (N-grams, others), and rule-based models (which, in general, could also be modeled using probabilities). For various tasks of the keyboard, different models will be used. 
+
+In general, there are several sources of variability in regards to the possible *following* words. The sources, in short, could be imagined as being the **context** of the respective text (the text currently written, using the keyboard). From the factors defining the context, one could enumerate:  
+* **the language** the text is written in. English vs. Russian, etc. The models should be sensitive to the respective language. For this project, I'll focus on the English corpus. A similar analysis and product could be re-created for the other languages, with the extra attention given to Unicode treatment.  
+* **the application** in which the text will appear. In this case, the 3 possibilities are Twitter, Blogs, News. Consider the amount of data, I'll treat them the same way (analyze the whole corpus and extract the needed information for all applications).    
+* **the subject** of the text. Ideally, the keyboard would be able to detect, in general terms, what the text is about (some high frequency words after removing the stopwords), and based on this information, to *push* some other possible *following words* in front (meaning giving them a higher probability). A probabilistic model involving groups of words, usually used together in texts, could be employed.    
+* **the grammar** of the language or of the person. This would be more difficult to model in general (and also would probably fail in case of Twitter or News, which involve some loose grammar or journalistic style), but hopefully N-grams will be helpful enough (where N is 4 or 5, but comparisons with shorter N-grams could be also done, and see if they're just as "good").  
+* **the vocabulary** of the user. In this case, I don't really have users (the data given is not associated with users), but the problem is similar to the *subject*, meaning that users tend to use the same words in regards to same subjects. The keyboard, after a while, could, in theory, use the text input to *learn* the user's specifics.  
+
+
+The workflow
+------------
+
+**As a general approach**, I'll start by creating a simple N-gram probabilistic model, by putting the texts together, creating the N-grams, and getting a measure of its accuracy (start with a 2-gram model). I'll use this model as a baseline. I'll continue by trying some improvements, including smoothing, back-off strategy or linear combination of N-grams. A measurement of accuracy will be done here also, and a statistical significance comparison will be attempted (comparison of proportions of accurate selections vs. the length of the text written - frankly, with such a huge corpus, hard to believe will NOT be statistically significant, so maybe a question of practical significance should be attempted). 
+
+Steps:   
+1. Remove profanities from files  
+  * A new set of files in a folder called **1_clean**, called "clean_en_US.blogs.txt", etc  
+  * At same time, remove most punctuation and lower case everything (prepare for N-grams analysis)   
+2. Break the files, get a training corpus, a test corpus, and a smaller corpus for a possible cross-validation step.  
+  * A new set of files, in folders **2_train**, **2_test**, **2_cross**. The sizes will follow the percentages 70% for training, 20% for testing, 10% for cross validation.  
+  * The process of splitting will be a simple one, break the files in somewhat equal 10 sizes. Pick randomly from these pieces, 2 for testing and 1 for cross-validation, the rest will be the training set. While in general a more precise method should be used, in this case I think this method will be enough, meaning that the collection of blogs/news/tweets is already pretty mixed, more like a "cluster" than a "stratum". Picking "clusters" (chunks) from files will keep the variability of the possible features constant (and high).  
+3. Get a language model based on the training corpus. Create 1-, 2-, 3-, 4-grams. Depending on the time, try a 5-grams. Check what's the distribution of frequencies (at some point the difference between frequencies will probably plateau, meaning that the N-grams will be unique, so no decision power at that point). There will be a set of files, in the folders *3_grams* (with the basic N-gram frequencies) and *4_models* (which contains a set of files for each N-grams, including an index of words, a vector of frequencies, and pointers towards the N-1 and 1-gram associated, as "prior" and "posterior").     
+4. measure the accuracy of the model on the test corpus.  
+5. Get a model based on back-off. Get a measure of accuracy on the test corpus.  
+6. Get a model based on smoothing techniques. Get a measure of accuracy on the test corpus.  
+7. Compare all models, draw conclusion.  
+
+
+
+Task 0 - Understanding the problem
+----------------------------------
+
+a). What data do I have?  
+* 4 sets of files, containing samples of tweets, blogs and news, in English, German, Finnish and Russian. 
+Some basic data, word counts, etc (used *wc* command, recursively). 
+
+```html
+  lines       words     file
+ 371440    12653185    .//de_DE/de_DE.blogs.txt
+ 244743    13219388    .//de_DE/de_DE.news.txt
+ 947774    11803735    .//de_DE/de_DE.twitter.txt
+ 899288    37334690    .//en_US/en_US.blogs.txt
+1010242    34372720    .//en_US/en_US.news.txt
+2360148    30374206    .//en_US/en_US.twitter.txt
+ 439785    12732013    .//fi_FI/fi_FI.blogs.txt
+ 485758    10446725    .//fi_FI/fi_FI.news.txt
+ 285214     3153003    .//fi_FI/fi_FI.twitter.txt
+ 337100     9691167    .//ru_RU/ru_RU.blogs.txt
+ 196360     9416099    .//ru_RU/ru_RU.news.txt
+ 881414     9542485    .//ru_RU/ru_RU.twitter.txt
+```
+
+b). What are the standard tools and models?  
+* documentation
+    * *Text mining infrastucture in R*: http://www.jstatsoft.org/v25/i05/
+    * *CRAN Task View: Natural Language Processing*: http://cran.r-project.org/web/views/NaturalLanguageProcessing.html
+    * Coursera course on NLP (not in R): https://class.coursera.org/nlp
+    * stemmers, stopwords, various helping info at http://snowball.tartarus.org
+    
+* libraries
+    * *Text Mining* R library, mentioned above
+    * *OpenNLP*, Java library for Natural Language Processing
+    * *Weka*, open source Java product for various Data Mining and Artificial Intelligence algorithms. The R library mentioned above does integrate with the other two. 
+
+* models
+    * the immediate model for predicting following words one could think of is the N-grams: Markov probabilistic model for associating a certain probability to words, depending on the previous (N-1) words. 
+    * for selecting the language and/or switching languages, a simple rule based model could be imagined: based on the stopwords typed with the keyboard, decide the language. Allow for changing on the fly, depending on changing the overall count of stopwords in a certain language. Another idea on this line, the model could flip between languages based on the N-grams ("a 4-Gram with a different language word at the end maybe should take into consideration 3-, 2-grams instead of an non-existing 4-Gram"). 
+    * a model based on more and more input from a user should be designed - the users have different "styles" (vocabularies, N-grams, subjects of conversation), so the keyboard should, in general, allow for a user-specific model. This should evolve based on accumulating more input, and the keyboard should behave based on the simple rule "is the N-gram in the user model? If not, use the general model..." (to be determined). 
+  
+**Questions**  
+
+* *What do the data look like?* The data seems to be text pieces extracted from Tweets, blogs, news.
+* *Where do the data come from?* HC Corpora (www.corpora.heliohost.org).
+* *Can you think of any other data sources that might help you in this project?*
+    * Vocabularies. This would make the parsing of the samples more robust, in the sense that the misspellings would be corrected while parsing the text, and I would get more correct counts for various statistics. 
+    * Stemmers, Part of Speech analyzer, Grammars. Working with the stemmer, would be able to extract grammar related rules, and make a more educated guess in regards to the next possible word. 
+    * N-grams database from Google. Would work together with the N-grams derived from the data given here. 
+    * It would be nice to have the data split "per user". Different users will have different "styles", and also would have a certain set of subjects they discuss about (guess-able from the most frequent words used - after removing the stopwords). The predictive keyboard *could* implement a learner which takes into consideration the previous user's texts, which would work in conjunction with the more general one. 
+* *What are the common steps in natural language processing?* 
+    * Tokenization: stemming, punctuation, analysis of linked and contracted words ("it's", "-"). 
+    * Sentence and structure detection: deal with punctuation. 
+    * Part of speech tagging, normalization: resolve ambiguities related to poly semantic words. 
+    * Named entity resolution: associate the word to a concept, use ontologies and synonyms. 
+    * Parsing: find the structure of a sentence. 
+    * Building a language model: use N-grams, rules, synonyms. Find a representation of the language model.
+* *What are some common issues in the analysis of text data?* One could think of: language (each language has its own specifics), problems with stemming (conjugations, declensions), punctuation (ambiguities), grammar (improper), semantic ambiguities, negations.
+* *What is the relationship between NLP and the concepts you have learned in the Specialization?* I would say that the most important connection is the statistic/probabilistic treatment of the language models (Markov chains, N-grams).
+
+  
+  
+Task 1 - Data acquisition and cleaning
+--------------------------------------
+
+**Tasks**
+
+* Tokenization - identifying appropriate tokens such as words, punctuation, and numbers. Writing a function that takes a file as input and returns a tokenized version of it.
+
+```{r}
+## function will parse a file and will write clean lines of that file in other file. 
+## e.g. A call like cleanFile("meh.txt", "clean") will create the folder "clean" and inside
+## a files - clean_meh.txt etc. This should not contain profanities (as defined above). 
+
+## NOTE - please careful with the param, the function doesn't check them at all. 
+cleanFile <- function(fileInput, folderOutput) {
+  if (!file.exists(folderOutput)){
+    ## create the folder if it doesn't exist
+    dir.create(folderOutput)
+  }
+    
+  ## get the lines from the file. 
+  input <- file(fileInput, "rb", encoding = "UTF-8")
+  lines <- readLines(input, skipNul = TRUE, encoding = "UTF-8")
+  close(input)
+  
+  ## open a file for writing
+  output <- file(paste(folderOutput, "/clean_", fileInput, sep=""), "w", encoding = "UTF-8")
+  
+  for (line in lines){
+    line <- iconv(line, to = "UTF-8")
+    ## readlines, clean them, write them in the new file. 
+    cleanLine <- removeProfanities(line)
+    writeLines(text = cleanLine, con = output)
+  }
+  
+  close(output)
+    
+}
+```
+
+* Profanity filtering - removing profanity and other words you do not want to predict. 
+The main idea here is to replace what is being perceived as profanity, with some predefined keyword. A personal choice here, using "(...)" instead of a profanity. Trivial replacement in the vector of tokens. Use the list at https://github.com/shutterstock/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/blob/master/en (a simplified subset of it). I used simple replacement instead of regular expression matching, for two reasons: 
+      * the regular expressions matching will be also prone to errors (" *uck" or similar will also filter "duck")  
+      * speed  
+
+```{r}
+library(stringi)
+
+## list of profanities, reduced here for readability. The actual list used is much longer. 
+## the list in the actual code does contain the actual profanities, shortened here. 
+profanities <- c("acroto...", "an..", "ana...", "ars...") ## etc  
+                 
+## function, will remove profanities from a line and will return the line with no punctuation, 
+removeProfanities <- function(line) {
+  ## leave the # and ' alone
+  ## tokens <- strsplit(line, "[~`!@$%^&*\\(\\)\\-_=+,<.>/?\\|\\{} \"]")
+  tokens <- AlphabeticTokenizer(line)
+  newline <- ""
+  for (token in unlist(tokens)){
+    if (token %in% profanities){
+      newline <- paste(newline, "(...)")
+    }
+    else 
+      newline <- paste(newline, stri_trans_tolower(token), sep=" ")
+  }
+  return(newline)
+}
+```
+
+
+
+**Questions**
+
+* *How should you handle punctuation?* Start with a punctuation symbols set, a simple regular expression. As noted above, using Unicode in text will complicate somewhat the treatment. The punctuation, in general, could help with the parsing (but not necessarily with the N-grams construction. In this case I used a regex like [~`!@$%^&*\\(\\)\\-_=+,<.>/?\\|\\{} \"]
+* *The data contains lots of times, dates, numbers and currency values. How to handle these? Are they useful for prediction?* Probably not that useful for the exact prediction the following word, but maybe useful for guessing the subject of the text. I choose to remove numbers from analysis. 
+* *How do you find typos in the data?* By comparing with the vocabulary and some rules for stemming. 
+* *How do you identify garbage, or the wrong language?* By an *admittedly long* series of unrecognized words. Not sure if one can make a clear distinction between "garbage" and "wrong language", unless I can be confident that I do have a complete set of languages defined in the system - if the text doesn't *belong* in any of the languages, then is *garbage*.
+* *How do you define profanity? How do you ensure you don't remove words you want to include?* One could include a list of profanities with variations (some simplistic regular expressions might also work). Not sure a *minimal edit distance* approach would work, since would be very difficult, based on a minimal edit distance approach, to allow words like *duck* or so. 
+* *How do you handle capital and lower cases?* Probably the simplest way is to lowercase everything in the model. They could play a role in part of speech analysis (names, etc, which should not be confused with some misspelled word). 
+* *What is the best set of features you might use to predict the next word?*
+    * N-grams (4- or 5-grams), learned from these files or from the user's input
+    * Part of speech analysis (grammar rules for the respective language)
+    * NOTE. the 4 and 5-grams will actually help a lot with the grammar as well, since most grammatical constructions will be well defined by 4 or 5 words expressions ("I .." is very often followed by a verb, etc). 
+
+
+At the end of the profanity removal task, I'll have clean files, no punctuation, all in lower case. These files will be ready to be analyzed for N-gram extraction. 
+
+
+
+Task 2 - Exploratory analysis
+-----------------------------
+
+**Tasks**
+
+* *Exploratory analysis  - perform a thorough exploratory analysis of the data, understanding the distribution of words and relationship between the words in the corpora.*   
+
+Before starting to create N-Grams, I need to take the corpus and split it in 3 conceptual pieces. A big piece for training, a smaller one for test, a smaller one for cross-training (if needed). 
+
+**DECISIONS**  
+* Use only the English corpus. I'll try to use ALL OF IT    
+* Split the 3 files in 10 pieces each. I'll select randomly 7 pieces from each, for training, 2 pieces for test, 1 for cross-validation (used Unix *split -l* command).  
+* Use a lib to start getting the N-grams out of the corpus (*RWeka* and *tm*)  
+
+Using tm and RWeka, the code will look like: 
+
+```{r}
+## Java stuff
+Sys.setenv(JAVA_HOME="")
+options(java.parameters="-Xmx14g")
+```
+```{r cache=TRUE, eval=FALSE}
+## create a tokenizer in RWeka, for this example do only the 5-Grams
+tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 5, max = 5))
+## load a corpus from a folder
+en_texts <- VCorpus(DirSource(directory="data/en_US/clean", encoding="UTF-8"), 
+                    readerControl=list(language="en"))
+## clean up text
+en_texts <- tm_map(x=en_texts, FUN=removeNumbers)
+## options(mc.cores=1)
+## create a term document matrix, with the frequencies
+tdm <- TermDocumentMatrix(en_texts, control=list(tokenizer=tokenizer))
+
+## process the TDM
+tdmMatrix <- as.matrix(tdm)
+
+## get the sums over rows, sort the grams decreasingly by frequency
+tf1grams <- rowSums(tdmMatrix)
+tf1sorted <- sort(tf1grams, decreasing = TRUE)
+
+## save the vector, has as element names the N-grams (.tf stands for term frequencies)
+save(tf1grams, file="5Grams.tf")
+save(tf1sorted, file="5Sorted.tf")
+tf1noones <- tf1sorted[which(tf1sorted != 1)]
+save(tf1noones, file="5noones.tf")
+```
+
+**Note**: loading in parallel on RWeka/MacOS TermDocumentMatrix crashes with some obscure errors. Suggestion to use option mc.cores=1.  
+**Note**: working on a "bigger" TermDocumentMatrix crashes the JVM behind RWeka, OutOfMemory. Suggestion to use option java.parameters="-Xmx14g" (heap size up to 14G)  
+**Note**: rJava library has problems if the environment variable JAVA_HOME is set. So unset it before loading rJava or RWeka (Sys.setenv(JAVA_HOME=""))  
+
+
+Some stats with regards to time required to analyze the whole corpus (English): 
+
+N-grams |    User / System  / Elapsed  
+------- | ---------------------------  
+1-Gram  |  773.86  /  1.77  /   775.69   
+2-Gram  |  916.21  /  5.79  /   902.12  
+3-Gram  | 2179.20  /  8.42  /  2153.49   
+4-Gram  | 2999.19  /  8.60  /  2969.92  
+5-Gram  | 3285.18  /  8.86  /  3258.52  
+
+
+
+*...Understand frequencies of words and word pairs - build figures and tables to understand variation in the frequencies of words and word pairs in the data.*
+
+  * 1-Grams:  
+    * Total different: ~443,000
+    * Highest frequency: ~3.3 millions
+    * Number of 1's (frequency == 1): ~229,000
+    * 6 Most used: "the", "to", "and", "a", "i", "of", "in", "it", "that"  
+  * 2-Grams:  
+    * Total different: ~10 millions  
+    * Highest frequency: ~300,000  
+    * Number of 1's (frequency == 1): ~7.1 millions 
+    * 6 Most used: "of the", "in the", "it's", "i'm", "to the", "for the"  
+  * 3-Grams:  
+    * Total different: ~32.7 millions  
+    * Highest frequency: ~40,000  
+    * Number of 1's (frequency == 1): ~27 millions   
+    * 6 Most used:  "i don't", "one of the", "a lot of", "it's a", "i can't", "thanks for the"
+  * 4-Grams:  
+    * Total different: ~50 millions  
+    * Highest frequency: 7898  
+    * Number of 1's (frequency == 1): ~45.7 millions    
+    * 6 Most used: "i don't know", "i'm going to", "can't wait to", "the end of the", "I don't think", "don't want to"
+  * 5-Grams:  
+    * Total different: ~55.7 millions  
+    * Highest frequency: 2630
+    * Number of 1's (frequency == 1): 53.7 millions (most of them are encountered only once)   
+    * 6 Most used: "at the end of the", "i don't want to", "can't wait to see", "it's going to be", "i can't wait to", "don't know that"
+
+As for a plot, I'll put just the 1-Grams plot (logarithm so I can see the "elbow"). The plots for the rest of the N-Grams will look VERY SIMILAR (except they have lower and lower frequencies, and longer and longer tails to the right - meaning more and more Grams with the count of 1). 
+
+![alt text](PlotFrq1Grams.png)
+
+
+**Questions**
+
+* *Some words are more frequent than others - what are the distributions of word frequencies?*  The distribution was described above, see the plot for 1-Grams.  
+* *What are the frequencies of 2-grams and 3-grams in the dataset?* As described above, the distribution of 2- and 3-grams are very similar to the 1-Grams, with the difference that the max frequency is a lot lower (so the slope starts lower), and the tail to the right is a lot longer. 
+* *How many unique words do you need in a frequency sorted dictionary to cover 50% of all word instances in the language? 90%?* For this I started with the frequency sorted dictionary and I calculated quantiles for 0.5, 0.9 and 0.99. See the *calculateQuantile* function underneath. The results: **107 (high frequency) words to cover 50% of the word instances (in this case ~400,000), 6363 words to cover 90%, and 75607 to cover 99% of the word instances.**   
+* *How do you evaluate how many of the words come from foreign languages?* A cross comparison of the low frequency words with a foreign language dictionary could be imagined. The "winner" is the one which has those words in the higher frequency.  
+* *Can you think of a way to increase the coverage -- identifying words that may not be in the corpora or using a smaller number of words in the dictionary to cover the same number of phrases?* One could think of a using synonyms to reduce the overall number of words in the text. Suggestions could be given based on synonyms.  
+
+
+```{r cache=TRUE, eval=FALSE}
+## calculate quantiles, quick and dirty method. I have already a probability distribution, 
+## in a vector, sorted decreasingly by probability. Loop through the elements, stop when
+## the desired quantile is achieved. 
+
+calculateQuantile <- function(distribution, quantile) {
+  ## careful, no param checking here. 
+  prob <- 0
+  for (i in 1:length(distribution)) {
+    prob <- prob + distribution[i]
+    if (prob > quantile){
+      print(prob)
+      return(i)
+    }
+  }
+}
+```
+
+
+
+Task 3 - Modeling
+-----------------
+
+*The goal here is to build your first simple model for the relationship between words. This is the first step in building a predictive text mining application. You will explore simple models and discover more complicated modeling techniques.*  
+
+
+**Tasks**  
+  
+  * *Build basic n-gram model - using the exploratory analysis you performed, build a basic n-gram model (http://en.wikipedia.org/wiki/N-gram) for predicting the next word based on the previous 1, 2, or 3 words.* At this point I have all of the 1- to 5-Grams constructed, saved separately as files (some are >6GB when loaded in R, so playing with them becomes a problem). I might need to filter all of the N-Grams, so they contain only the Grams with frequencies > 1 (exception the 1-Grams, I'll use those as dictionary).   
+  * *Build a model to handle unseen n-grams - in some cases people will want to type a combination of words that does not appear in the corpora. Build a model to handle cases where a particular n-gram isn't observed.*  I'll use a simplest backoff strategy, if there is no suggestion for the last 4 words (using 5-Grams and associated probabilities), then use last 3, if not, last 2, if not, last 1, and, if still not, use the highest 1-Gram probabilities ("the", "end", etc).   
+
+**DECISIONS**  
+In order to build the N-gram, I'll process the N-grams by breaking them in several different indexes. Each of the N-grams will be saved as intermediary files, as follows:  
+* a file for the "n-gram" to "index" mapping (since the words take most of the memory space, I'll keep them in only one place)  
+* a file for the "n-1 gram", the prior. This has the indexes in the N-1 "n-gram to index" mapping (calculated in a prev step)  
+* a file for the "1-gram" posterior. This has the indexes in the 1-gram "n-gram to index" mapping (calculated in first step)  
+* a file with the calculated probabilities, mapping N-gram to calculated probabilities (sorted decreasingly by probability).  
+
+So, the code underneath does:  
+* load the "term frequency" file, sorted decreasingly in a previous step by frequency  
+* extract the "N-gram to index" vector, save  
+* extract the priors (N-1-Grams), posteriors (1-Grams), save
+* calculate the conditional probabilities for the N-Grams | N-1-Grams, using MLE   
+  * P(wn|w1w2..wn-1) = C(w1w2...wn) / C(w1w2..wn-1)  
+* with all above, create a data.table, work on the data.table from here on (easy to order, etc)
+
+
+
+```{r cache=TRUE, eval=FALSE}
+library(data.table)
+
+##..... code removed, left only the 5-Grams. 
+
+## load the 5-grams
+load("3_grams//5noones.tf")
+tf5Sorted <- sort(tf5noones, decreasing = TRUE)
+len5 <-length(tf5Sorted)
+indexes5Gram <- 1:len5
+names(indexes5Gram) <- names(tf5Sorted)
+save(indexes5Gram, file="5_models/indexes5Gram.tf") ## MAPPING N-GRAM TO INDEX
+
+## find prior, posterior
+allNames5 <- names(tf5Sorted)
+freq5Gram <- unname(tf5Sorted)
+save(freq5Gram, file="5_models/freq5Gram.tf")       ## MAPPING INDEX TO COUNTS
+allNamesCollapsed5 <- paste(allNames5, collapse = " ")
+allNamesVector5 <- unlist(strsplit(allNamesCollapsed5, split = " "))
+prior5_1 <- allNamesVector5[seq.int(1, len5 * 5, 5)]
+prior5_2 <- allNamesVector5[seq.int(2, len5 * 5, 5)]
+prior5_3 <- allNamesVector5[seq.int(3, len5 * 5, 5)]
+prior5_4 <- allNamesVector5[seq.int(4, len5 * 5, 5)]
+post5 <- allNamesVector5[seq.int(5, len5 * 5, 5)]
+prior5 <- paste(prior5_1, prior5_2, prior5_3, prior5_4, sep = " ")
+prior5Ix <- indexes4Gram[prior5]
+post5Ix <- indexes1Gram[post5]
+save(prior5Ix, file="5_models/prior5Gram.tf")     ## MAPPING INDEX TO PRIOR
+save(post5Ix, file="5_models/posterior5Gram.tf")  ## MAPPING INDEX TO POSTERIOR
+
+## calculate probabilities for these, use the N-1 probability
+prob5Gram <- vector(mode = "integer", length = length(freq5Gram))
+for(i in 1:length(indexes5Gram)) 
+  prob5Gram[i] <- (freq5Gram[i] / freq4Gram[prior5Ix[i]])
+names(prob5Gram) <- names(indexes5Gram)
+save(prob5Gram, file="5_models/prob5GramSimple.tf") ## MAPPING N-GRAM TO PROBABILITY
+
+## put all together in a data.table
+dt5Grams <- data.table(grams = names(indexes5Gram), 
+                       index = indexes5Gram, 
+                       frequency = freq5Gram, 
+                       prior = prior5Ix, 
+                       posterior = post5Ix, 
+                       probabilities = prob5Gram)
+## most of the searches and operations will be done on priors
+setkey(dt5Grams, prior)
+save(dt5Grams, file="5_models/dt5Gram.dt")
+
+## sort by prior (increasing) and probability (decreasing)
+dt5SortedPriorProb <- dt5Gram[order(prior, -probabilities)]
+save(dt5SortedPriorProb, file="5_models/dt5SortedPriorProb.dt")
+
+## keep only 3 posterior choices for each prior, the ones with the higher probability
+dt5Priors <- dt5SortedPriorProb$prior
+dt5Keep <- cmpMarkFirstN(dt5Priors, 3)  ## cmpMarkFirstN is a compiled function
+dt5SortedPriorProb$keep <- dt5Keep
+dt5SortedFirst3 <- dt5SortedPriorProb[keep == TRUE]
+dt5GramFinal <- dt5SortedFirst3 ## this is the structure I'll use for the matching
+dt5GramFinal$frequency <- NULL
+dt5GramFinal$keep <- NULL
+save(dt5GramFinal, file="5_models/dt5GramFinal")
+
+
+
+```
+
+
+
+**Questions**  
+  
+  * *How can you efficiently store an n-gram model (think Markov Chains)?*  As suggested, a Markov Chain could be employed. Starting with the list of 1-Grams (probabilities of one-word together with the list of one-words), I could start parsing the 2-Grams. For each of the 2-Grams, add a "link" between the words, so the link represents the probability of the respective 2-Gram (and so on for the 3-, 4-, 5-Grams). The "paths" will have to be memorized, so the model works "forward", meaning that given a group of words, the model is quick to calculate the "next probable word". In regards to efficiency, and looking at the size of the problem, several things will have to be taken into consideration:  
+    * Don't create other vectors with the actual words or Grams. These take a lot of space. Use "links", meaning indexes in the 1-Gram vector, to describe "next" word.  
+    * The 1-Gram vector is ~700,000 words. So find the smallest integer type that will store these indexes.  
+    * The model will contains Grams and several pieces of information for each Gram (probability of being on 1'st, 2'nd, 3'd positions, etc). I think something like this should work. TO BE TESTED. 
+  * *How can you use the knowledge about word frequencies to make your model smaller and more efficient?* One idea is to completely drop a bunch of the "rarely seen" Grams (meaning for example the ones with frequency 1). This would mean dropping about 75% of the 2-Grams (I leave the 1-Grams as they are), more than 80% of the 3-Grams, almost 95% from the 4- and 5Grams.   
+  * *How many parameters do you need (i.e. how big is n in your n-gram model)?* This model I'm building will go up to 5-Grams. Frankly, looking at the texts, it seems that there is little predictive power in the groups of 5 (usually the 5
+'th word is already another stopword, so something that would come up higher anyway, with any of the 2/3/4-Gram models).     
+  * *Can you think of simple ways to "smooth" the probabilities (think about giving all n-grams a non-zero probability even if they aren't observed in the data) ?* The literature[1] seems to point to several methods, Laplace, Good-Turing, Kneser-Ney methods.   
+  * *How do you evaluate whether your model is any good?* I already broke the corpus into train, test and cross-validation. With the model built on train set, I intend to verify the accuracy of the model, in 2 accuracies measurements. 
+    * First, "estimate next word". Loop through the test corpus, for each word use the model to estimate next word. Use the model to return ONLY the highest probability one. Compare the model given answer with the actual word. Count the hits/misses, get accuracy.   
+    * Second, "estimate next possible 3 words". This is different, in the way that a software keyboard could give the user several options in regards to the next possible word. In my case, I'll use 3 options. With this in mind, the process will be: parse the testing corpus, and for each word use the model to return 3 possibilities. If the actual next word is in those 3, consider it a "hit". Count hits and misses, calculate accuracy.  
+  * *How can you use backoff models (http://en.wikipedia.org/wiki/Katz's_back-off_model) to estimate the probability of unobserved n-grams?* In general, by using the less-grams model. The Katz model lets probabilities compete: the probabiliy of an N-gram, vs. a N-1-gram, adjusted by a factor. In case of a unobserved N-gram, I fall back to a N-1 grams, and, if this doesn't exist either, continue.. Worst case scenario, fall back on the probability of a 1-Gram.   
+
+
+
+Task 4 - Prediction
+-------------------
+
+*The goal of this exercise is to build and evaluate your first predictive model. You will use the n-gram and backoff models you built in previous tasks to build and evaluate your predictive model. The goal is to make the model efficient and accurate.*   
+
+At this point I have structures which represent N-grams with:    
+* indexes  
+* frequencies   
+* priors  
+* posteriors  
+* probabilities  
+I'll use these to start calculating the accuracy. With the above, I can create a new structure for each N-Grams, which is a mapping "prior to best choices for posterior". I'll use the data.tables obtained above.  
+
+**DECISIONS**  
+*Some tests with the N-gram models.*  
+For these tests, I'll use 2 accuracy measurements.  
+    * First, "estimate next word". Loop through the test corpus, for each word use the model to estimate next word. Use the model to return ONLY the highest probability one. Compare the model given answer with the actual word. Count the hits/misses, get accuracy.   
+    * Second, "estimate next possible 3 words". This is different, in the way that a software keyboard could give the user several options in regards to the next possible word. In my case, I'll use 3 options. With this in mind, the process will be: parse the testing corpus, and for each word use the model to return 3 possibilities. If the actual next word is in those 3, consider it a "hit". Count hits and misses, calculate accuracy.  
+  
+Not going to use perplexity measurements. While in general, would give a somewhat accurate measure of "how probable is a certain sentence" (using 5-Grams in this model), would not measure IF the keyboard would be actually useful. Our interest here is to give the user "good options", not necessarily a "high probability of sentence". It's very possible that a model with a lower perplexity would give NO useful predictions to the user. 
+Otherwise, should be trivial to calculate:  
+* loop through the test text.   
+* for each word calculate the probability of that word in the context (5-Grams if I have 4 previous words, etc). 
+* log the probability, add it and then calculate the mean - this would be the perplexity.   
+    
+
+**Tasks**  
+
+* *Build a predictive model based on the previous data modeling steps - you may combine the models in any way you think is appropriate.*  The simple models have been created and measured, the results are above. I'll try a combined model from the different N-Grams.  
+* *Evaluate the model for efficiency and accuracy - use timing software to evaluate the computational complexity of your model. Evaluate the model accuracy using different metrics like perplexity, accuracy at the first word, second word, and third word.*  So, with the accuracy measurements described above, I arrive to the following results on the test text (**not involved** in training - about 350,000 words ~ 2MB, taken from a random piece of blogs data):  
+NOTE: these tests are done with a *strictly* N-gram model, not with a combination of models.  
+
+    Type of test | Accuracy    
+-----------------|----------------------------------------------------------------------------------
+1-Gram 1  choice | 5.5%     (basically this model just counts the "the" words in the test vector)    
+1-Gram 3 choices | 8%       (this time counts "the", "to", "and")    
+2-Gram 1  choice | 15.5%     
+2-Gram 3 choices | 23%      (~1200 priors not in model)    
+3-Gram 1  choice | 8%       (going down from 2-Grams, ~250000 priors not in model)        
+3-Gram 3 choices | 24%      (going up from -Grams, ~200000 priors not in model)       
+4-Gram 1  choice | 8%       (same as with only 3)  
+4-Gram 3 choices | 16%      (worse than with only 3)    
+5-Gram 1  choice | 2.5%     (a lot worse)  
+5-Gram 3 choices | 4%       (a lot worse)   
+
+Obviously, the accuracy is expected to start going down further (for higher N-Grams, the probability of getting an unknown word will go up with the N). 
+
+I'll try also combination of models, starting with a trivial back-off. Check for 5-Grams, if found count as hit, if not, check for 4-Grams (4 last words *typed*), etc. If not found anywhere, is a miss (is a little more complicated than this, but not a lot more).   
+
+
+             Type of test | Accuracy    
+--------------------------|--------------------------------------------------------------------------------
+Trivial backoff 1  choice | 26% (pretty solid accuracy for a 1 choice model), ~800 not in dictionary    
+Trivial backoff 3  choice | 37% (for some reason I expected better)    
+
+
+
+**Questions**  
+
+* *How does the model perform for different choices of the parameters and size of the model?* As presented above in the table, with the different results. I add a little lower a test with the trimmed N-Grams.      
+* *How much does the model slow down for the performance you gain?* Most of the processing in the model is based on indexed data.tables (which use keys, I think binary search for finding a string value - the prior). Growing the number of Grams in the model would result in slight growth in time, but multiplied for the N. Could be significant. Another issue here is the size of the model: 400,000 1-Grams, 750,000 2-Grams, 14 million 3-Grams, 40 million 4-Grams, almost 1 million 5-Grams (this was artificially truncated). This size is already into 8GB RAM, which puts stress on the machine. Growing the model even larger would force the machine to swap, which would make the processing significantly longer.      
+* *Does perplexity correlate with the other measures of accuracy?* Didn't calculate perplexity (explained above), but in general I know that it should correlate.  
+* *Can you reduce the size of the model (number of parameters) without reducing performance?* Probably yes, by trimming the N-grams. I'll use a strategy of removing the 1 time found 1-Grams, then going through the 2- to 5-Grams and eliminating the ones which correspond to Grams eliminated earlier (go through the 2-Grams and eliminate the ones with the prior or posterior in the eliminated 1-Grams, then go through the 3-Grams and eliminate.. etc).      
+With the trimmed data, I get the reduction in sizes: 
+
+  N-Gram  | Size of data    
+----------|--------------------------------------------------------------------------------
+  1-Grams | ~200,000 (instead of 400,000)    
+  2-Grams | ~225,000 (instead of 10 million)    
+  3-Grams | ~2 million (instead of 35 million)    
+  4-Grams | ~2.5 million (instead of 40 million)    
+  5-Grams | <2 million (instead of 10 million)    
+
+...and the accuracies measurements. 
+
+             Type of test | Accuracy    
+--------------------------|--------------------------------------------------------------------------------
+Trivial backoff 1  choice | 24.5% (slightly worse than above)    
+Trivial backoff 3  choice | 35% (slightly worse as well)   
+
+So the drastic reduction in dimension resulted in a small reduction in accuracy. 
+
+
+
+Task 5 - Creative exploration
+-----------------------------
+
+*So far you have used basic models to understand and predict words. In this next task, your goal is to use all the resources you have available to you (from the Data Science Specialization, resources on the web, or your own creativity) to improve the predictive accuracy while reducing computational runtime and model complexity (if you can). Be sure to hold out a test set to evaluate the new, more creative models you are building.*
+
+**Tasks**  
+
+*Explore new models and data to improve your predictive model.*  
+*Evaluate your new predictions on both accuracy and efficiency.*  
+
+**Questions**
+
+* *What are some alternative data sets you could consider using?* A strong candidate for new data is the user's input. Learning from the user and presenting suggestions from own corpus would probably be more meaningful than a "generic" suggestion.      
+* *What are ways in which the n-gram model may be inefficient?* The model doesn't capture longer dependecies. Also, will have trouble with dates, numbers, percentages, etc (things which in general are not reducible to N-Grams).      
+* *What are the most commonly missed n-grams? Can you think of a reason why they would be missed and fix that?*   
+* *What are some other things that other people have tried to improve their model?*   
+* *Can you estimate how uncertain you are about the words you are predicting?* For this I need a confidence interval for the proportions I obtained (binomial distribution for a sample). Taking for example the last result, 37% for a 300,000 words corpus (take the small text I tested with, not the large one), I get the following: 
+    * P = 0.37
+    * N = 300,000
+    * the confidence interval is P_estimated +/- z * sqrt(P_estimated * (1 - P_estimated) / N)
+    * this gets me, for a 95% confidence level (z = 1.96), to the **confidence interval = (36.8%, 37.1%)**
+
+
+
+Task 6 - Reproducible documentation of results
+----------------------------------------------
+
+*This task is to build the documentation describing how you came to your final predictive model. You should summarize efficiently your analysis and model building steps. The goal is to communicate everything you learned about the data set in a succinct way.*
+
+**Tasks**  
+
+*Create a reproducible report explaining your analysis - pay particular attention to keeping the report succinct and easy to follow. Be sure to tell a story.*  
+
+**Questions**  
+
+* *What parts of the data analysis should you report?*    
+    * Problem statement  
+    * Short introduction into the modeling  
+    * N-Grams analysis  
+    * Creating a simple model  
+    * Measuring accuracy of the model  
+    * Explain improvements  
+    * Create an improved model  
+    * Measure and draw a conclusion  
+* *What order makes the most sense to help another person understand what you have done?*  As above.  
+* *How do you balance completeness and efficiency? What are the "need to knows"?*  Needs to know: data model and algorithm description.  
+
+
+
+Task 7 - Data Product
+---------------------
+
+*The goal of this exercise is to create a product to highlight the prediction algorithm that you have built and to provide an interface that can be accessed by others. You may choose to create either a prediction API through Yhat or a Shiny app.*  
+Will create a Shiny app. 
+
+**Tasks**  
+
+*Create a data product to show off your prediction algorithm You may create either an API that accepts an n-gram and predicts the next word or a Shiny app that does the same thing.*  
+
+Pick Shiny, with a simulated input into some application. The application will let the user input text, and will suggest possible next words to the words put in. The user can click on the respective suggestions, and a measure of accuracy (how many times clicked vs. total number of words in text) will be measured.  
+
+**Questions**  
+
+* *What are the most interesting ways you could show off your algorithm?*  Not sure about the "most" interesting, but a simulated input box with buttons for "next" words should show the 
+* *Are there any data visualizations you think might be helpful (look at the Swiftkey data dashboard if you have it loaded on your phone)?* A presentation of decisions from the application would be nice to have. This would include the way of choosing the next words, and the probabilities involved in the decision.     
+* *How can you demonstrate the usefulness of your Yhat-based API?* Probably by letting one connect to it and test words.     
+* *How should you document the use of your data product (separately from how you created it) so that others can rapidly deploy your algorithm?* Is not only an algorithm, but also includes some data. That data should be offered together with the methods of using it, in order for others to be able to use it.    
+
+
+
+
+
+
+References
+-----------
+
+* [1] Natural Language Processing - Dan Jurafsky, Christopher Manning - https://class.coursera.org/nlp/lecture
+* [2] Mining the Web, discovering knowledge from hypertext data - Soumen Chakrabarti
+* [3] Wikipedia
+* [4] Stemming algorithms, stopwords and resources at http://snowball.tartarus.org
+
