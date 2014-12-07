@@ -34,10 +34,68 @@ n
 
 
 ```{r}
-length(sample(1:n))
-sample(1:n, prob=3/4)
-?sample
+set.seed(123)
+train.ind  <- sample(1:n, size=floor(0.75 * n))
+#?sample
 ```
+
+
+```{r}
+library(tm)
+corpus <- VCorpus(DirSource(directory="./en_US/Split", encoding="UTF-8"), readerControl=list(language="en"))
+```
+
+
+
+
+
+```{r}
+rm(train.corpus)
+train.corpus = corpus[train.ind]
+train.corpus
+```
+
+
+```{r}
+detach(package:tm)
+options(java.parameters="-Xmx6g")
+library(tm)
+gc()
+train.corpus  <- tm_map(train.corpus, content_transformer(tolower))
+gc()
+train.corpus  <- tm_map(train.corpus, removeNumbers)
+gc()
+train.corpus  <- tm_map(train.corpus, removePunctuation)
+gc()
+train.corpus  <- tm_map(train.corpus, stripWhitespace)
+gc()
+#train.corpus  <- tm_map(train.corpus, PlainTextDocument)
+```
+
+```{r}
+train.dtm  <- DocumentTermMatrix(train.corpus)
+train.dtm
+dim(train.dtm)
+inspect(train.dtm[1:10, 100:110])
+```
+
+
+
+```{r}
+library(RWeka)
+UnigramTokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 1, max = 1)) 
+BigramTokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2)) 
+TrigramTokenizer <- function(x) RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 3, max = 3)) 
+```
+
+
+```{r}
+controls_B <- list( stemming = function(word) wordStem(word, language = "english"),tokenize=BigramTokenizer) 
+trainTDM_B<- TermDocumentMatrix(train.corpus,controls_B)
+trainTDM_B
+removeSparseTerms(trainTDM_B,.2)
+```
+
 
 
 
@@ -48,17 +106,41 @@ library(RWeka)
 ## Java stuff
 #Sys.setenv(JAVA_HOME="") ## ugly error without this
 options(java.parameters="-Xmx4g")  ## give Weka as much memory as possible
-
+```
 ###Create simple models 
 
 
 At this point I want to create the N-Grams (1 to 5). I'll save the results in a different folder, where I'll start building the model. Using tm and RWeka, the code will look like (do this for all of the 1 to 5-Grams): 
 
+
+
+```{r}
+library(tm)
+#install.packages("tm",dep=T)
+```
+  
+```{r}
+corpus = VCorpus(DirSource('./en_US//Split'), readerControl = list(language = "en"))
+```
+
+
+```{r}
+corpus
+```
+
+
+
+  
 ```{r}
 ## Java stuff
 Sys.setenv(JAVA_HOME="")
-options(java.parameters="-Xmx14g")
+options(java.parameters="-Xmx6g")
 ```
+
+
+
+
+
 ```{r cache=TRUE, eval=FALSE}
 ## create a tokenizer in RWeka, for this example do only the 5-Grams
 tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 5, max = 5))
