@@ -6,7 +6,7 @@ Capstone Project, a predictive keyboard
 
 #### Notebooks 
 
-- [Milestone Report.ipynb](http://nbviewer.jupyter.org/github/vikasgupta1812/Coursera-capstone-project/blob/master/Milestone Report.ipynb)
+- [Milestone Report.ipynb](http://nbviewer.jupyter.org/github/vikasgupta1812/Coursera-capstone-project/blob/master/Milestone%20Report.ipynb)
 - [PredictiveKeyboardReport.ipynb](http://nbviewer.jupyter.org/github/vikasgupta1812/Coursera-capstone-project/blob/master/PredictiveKeyboardReport.ipynb)
 - [ProjectSketch.ipynb](http://nbviewer.jupyter.org/github/vikasgupta1812/Coursera-capstone-project/blob/master/ProjectSketch.ipynb)
 
